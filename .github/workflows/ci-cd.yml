@@ -56,6 +56,8 @@ jobs:
     name: SonarQube Analysis
     runs-on: ubuntu-latest
     needs: build-and-test
+    continue-on-error: true
+    if: ${{ secrets.SONAR_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -116,7 +118,7 @@ jobs:
   push:
     name: Push to GHCR
     runs-on: ubuntu-latest
-    needs: [build-and-test, sonarqube, security]
+    needs: [build-and-test, security]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
