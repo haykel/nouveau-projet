@@ -1,7 +1,7 @@
 replicaCount: 2
 
 image:
-  repository: ghcr.io/haykel/mon-projet-devops/backend
+  repository: ghcr.io/haykel/autism-screening-platform/backend
   tag: latest
   pullPolicy: Always
 
@@ -11,9 +11,19 @@ service:
 
 ingress:
   enabled: true
-  host: app.local
-  path: /api
+  host: screening.local
+  path: /
   pathType: Prefix
+
+env:
+  DJANGO_DEBUG: "false"
+  DB_HOST: postgresql
+  DB_NAME: autism_screening
+  DB_USER: django
+  DB_PORT: "5432"
+  PROVIDER_SEARCH_RADIUS_KM: "30"
+
+secretRef: backend-secret
 
 resources:
   requests:
@@ -24,6 +34,6 @@ resources:
     memory: 256Mi
 
 healthcheck:
-  path: /health
+  path: /health/
   initialDelaySeconds: 10
   periodSeconds: 10

@@ -43,7 +43,7 @@ spec:
                 - -U
                 - django
                 - -d
-                - investissement
+                - autism_screening
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
@@ -53,7 +53,7 @@ spec:
                 - -U
                 - django
                 - -d
-                - investissement
+                - autism_screening
             initialDelaySeconds: 30
             periodSeconds: 15
       volumes:

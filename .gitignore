@@ -4,6 +4,11 @@ __pycache__/
 *.egg-info/
 .env
 db.sqlite3
+*.egg
+
+# Django
+staticfiles/
+media/
 
 # Node
 node_modules/
@@ -23,3 +28,9 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Virtual env
+venv/
+.venv/
+.aidesigner/*
+!.aidesigner/.gitkeep

@@ -15,11 +15,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 FROM base AS test
-RUN DB_HOST= python manage.py test --verbosity=2
+RUN python manage.py test screening --verbosity=2
 
 FROM base AS production
 
-RUN DB_HOST= python manage.py collectstatic --noinput
+RUN python manage.py collectstatic --noinput
 
 EXPOSE 8000
 

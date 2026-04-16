@@ -1,223 +1,187 @@
-# CLAUDE.md - Instructions d'installation DevOps
+# CLAUDE.md - Autism Pre-Screening Platform
 
-Ce fichier contient toutes les commandes pour déployer l'architecture DevOps complète du projet mon-projet-devops sur un Mac Apple Silicon M4.
+## Projet
 
-## 1. Installation des outils (Homebrew)
+Plateforme medicale de pre-depistage des Troubles du Spectre Autistique (TSA) chez l'enfant. Systeme d'estimation du risque avec approche hybride : moteur de regles cliniques + couche d'interpretation IA + couche de securite medicale.
+
+**AVERTISSEMENT FONDAMENTAL** : Ce systeme n'est PAS un outil de diagnostic. Il ne doit JAMAIS produire de diagnostic definitif. Il fournit uniquement une estimation du risque, une detection de signaux d'alerte, et une recommandation de consultation.
+
+## Stack technique
+
+| Composant | Technologie |
+|---|---|
+| Backend | Django 5.1 + Django REST Framework |
+| Base de donnees | PostgreSQL 16 (SQLite en dev local) |
+| ORM | Django ORM |
+| API | REST |
+| IA | Claude API (Anthropic SDK) |
+| WSGI | Gunicorn |
+| Tests | Django TestCase / SimpleTestCase |
+| Conteneurisation | Docker (multi-stage) |
+| Orchestration | Kubernetes (Minikube) |
+| CI/CD | GitHub Actions |
+| GitOps | ArgoCD |
+| Secrets | HashiCorp Vault |
+| Monitoring | Prometheus + Grafana + Loki |
+
+## Architecture modulaire
+
+Le backend est organise en une app Django `screening` avec des services independants :
+
+| Service | Fichier | Responsabilite |
+|---|---|---|
+| Views (Session/Answer) | `screening/views.py` | Creation sessions, collecte reponses, declenchement analyse |
+| `RuleEngineService` | `screening/services/rule_engine.py` | Scoring clinique, detection des red flags, seuils de recommandation |
+| `AISummaryService` | `screening/services/ai_summary.py` | Resume narratif structure via Claude API |
+| `SafetyValidationService` | `screening/services/safety_validation.py` | Validation post-traitement, blocage du langage diagnostique |
+| `ProviderMatcherService` | `screening/services/provider_matcher.py` | Matching geographique (haversine) de professionnels de sante |
+| `ResultComposerService` | `screening/services/result_composer.py` | Orchestration des 3 couches et assemblage du resultat final |
+
+## Modele de decision hybride (3 couches)
+
+### Couche 1 : Moteur de regles cliniques (PRIMAIRE)
+
+Le moteur de regles est la source principale de decision. Il effectue :
+- Filtrage des questions par tranche d'age (`QuestionBlock`)
+- Scoring par reponse (poids configurable via `score_weight`)
+- Scoring par domaine (communication, interaction sociale, comportements, sensoriel)
+- Detection des signaux critiques via `trigger_flag` + `is_red_flag` sur les options
+- Seuils : `HIGH_THRESHOLD = 0.65`, `MEDIUM_THRESHOLD = 0.40`
+- Niveaux de recommandation :
+  - `monitor` : surveillance, pas de risque significatif
+  - `pediatric_consultation` : score >= seuil moyen
+  - `specialist_consultation` : score >= seuil eleve
+  - `urgent_referral` : regression langagiere/sociale/perte de competences
+
+### Couche 2 : Interpretation IA (SUPPORT)
+
+L'IA recoit uniquement des donnees structurees et produit un resume en francais.
+Fallback automatique si `ANTHROPIC_API_KEY` non configure.
+
+L'IA ne doit JAMAIS :
+- Diagnostiquer le TSA
+- Surcharger les red flags du moteur de regles
+- Remplacer les regles de seuil
+- Exprimer une certitude medicale
+
+### Couche 3 : Garde-fous de securite (VALIDATION)
+
+Module de post-traitement (`SafetyValidationService`) qui :
+- Scanne tout texte genere avec des regex (FR + EN)
+- Bloque le langage diagnostique
+- Ajoute automatiquement le disclaimer obligatoire
+- Remplace le texte entier si des violations sont detectees
+
+Formulations INTERDITES :
+- "L'enfant a l'autisme" / "has autism"
+- "Cela confirme l'autisme" / "confirms autism"
+- "L'enfant n'a pas l'autisme" / "does not have autism"
+- Tout enonce de type diagnostique ou de certitude medicale
+
+## Schema de base de donnees
+
+8 tables Django ORM definies dans `screening/models.py` :
+- `screening_sessions` : session de depistage (UUID pk, parent, enfant, age, geolocalisation)
+- `questions` : banque de questions avec domaine, poids, tranche d'age, type, trigger_flag
+- `question_options` : options de reponse avec score et indicateur is_red_flag
+- `question_blocks` : blocs de questions groupes par age
+- `block_questions` : association M2M bloc-question avec ordre
+- `answers` : reponses collectees avec score calcule (unique par session+question)
+- `analysis_results` : resultats d'analyse (OneToOne avec session)
+- `providers` : professionnels de sante avec geolocalisation
+
+## Endpoints API
+
+| Methode | Route | Description |
+|---|---|---|
+| `POST` | `/api/sessions/` | Creer une session de depistage |
+| `GET` | `/api/sessions/<uuid>/` | Recuperer une session |
+| `GET` | `/api/sessions/<uuid>/questions/` | Questions adaptees a l'age |
+| `POST` | `/api/sessions/<uuid>/answers/` | Soumettre les reponses |
+| `POST` | `/api/sessions/<uuid>/analyze/` | Lancer l'analyse complete |
+| `GET` | `/api/sessions/<uuid>/results/` | Recuperer les resultats |
+| `GET` | `/api/providers/nearby/?lat=X&lng=Y` | Professionnels proches |
+| `GET` | `/health/` | Health check |
+
+## Commandes de developpement
 
 ```bash
-brew install minikube kubectl helm vault trivy
+# Installation
+pip install -r requirements.txt
+
+# Migrations
+python manage.py makemigrations
+python manage.py migrate
+
+# Charger les donnees de seed (questions, blocs, providers)
+python manage.py seed_questions
+
+# Demarrage en dev
+python manage.py runserver
+
+# Tests
+python manage.py test
+
+# Docker Compose (dev local)
+docker-compose up --build
+# Backend  : http://localhost:8000
+# Postgres : localhost:5432
 ```
 
-## 2. Demarrage Minikube (ARM64 / Apple Silicon M4)
+## Deploiement Kubernetes
 
 ```bash
-minikube start \
-  --driver=docker \
-  --cpus=4 \
-  --memory=10240 \
-  --kubernetes-version=v1.31.0
-```
-
-> **Fix applique** : `--memory=10240` est necessaire pour supporter kube-prometheus-stack + Loki + Vault + ArgoCD simultanement. Valeur par defaut (2048) insuffisante.
-
-Activer l'ingress controller :
-
-```bash
+# Demarrage Minikube (Apple Silicon M4)
+minikube start --driver=docker --cpus=4 --memory=10240 --kubernetes-version=v1.31.0
 minikube addons enable ingress
-```
 
-## 3. Installation ArgoCD
-
-```bash
+# Namespaces
 kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-```
-
-Attendre que les pods soient prets :
-
-```bash
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd --timeout=300s
-```
-
-Recuperer le mot de passe admin :
-
-```bash
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-```
-
-Port-forward pour acceder a l'UI :
-
-```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-```
-
-## 4. Installation Vault
-
-```bash
-helm repo add hashicorp https://helm.releases.hashicorp.com
-helm repo update
-
 kubectl create namespace vault
-
-helm install vault hashicorp/vault \
-  --namespace vault \
-  --set "server.dev.enabled=true" \
-  --set "server.dev.devRootToken=root"
-```
-
-Creation des secrets :
-
-```bash
-kubectl exec -n vault vault-0 -- vault kv put secret/django \
-  SECRET_KEY="your-production-secret-key" \
-  DEBUG="false" \
-  ALLOWED_HOSTS="app.local"
-
-kubectl exec -n vault vault-0 -- vault kv put secret/sonarqube \
-  monitoringPasscode="your-sonarqube-passcode"
-```
-
-> **Fix applique** : `monitoringPasscode` est requis pour le webhook SonarQube. Le configurer dans les secrets Vault.
-
-## 5. Installation kube-prometheus-stack (Grafana, Prometheus, Alertmanager)
-
-```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-
 kubectl create namespace monitoring
+kubectl create namespace production
 
+# ArgoCD
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Vault
+helm repo add hashicorp https://helm.releases.hashicorp.com
+helm install vault hashicorp/vault --namespace vault \
+  --set "server.dev.enabled=true" --set "server.dev.devRootToken=root"
+
+# Secrets Vault
+kubectl exec -n vault vault-0 -- vault kv put secret/autism-screening \
+  DJANGO_SECRET_KEY="your-production-secret-key" \
+  ANTHROPIC_API_KEY="your-api-key" \
+  DB_PASSWORD="your-db-password"
+
+# Monitoring
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
   --set grafana.adminPassword=admin \
-  --set grafana.sidecar.datasources.enabled=true \
-  --set grafana.sidecar.datasources.label=grafana_datasource
-```
+  --set grafana.sidecar.datasources.enabled=true
 
-Port-forward Grafana :
-
-```bash
-kubectl port-forward svc/kube-prometheus-stack-grafana -n monitoring 3001:80
-```
-
-> Grafana accessible sur http://localhost:3001 (admin/admin)
-
-## 6. Installation Loki
-
-```bash
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo update
-```
-
-Creer le fichier `single-binary-values.yaml` :
-
-```yaml
-loki:
-  commonConfig:
-    replication_factor: 1
-  storage:
-    type: filesystem
-  schemaConfig:
-    configs:
-      - from: "2024-01-01"
-        store: tsdb
-        object_store: filesystem
-        schema: v13
-        index:
-          prefix: loki_index_
-          period: 24h
-singleBinary:
-  replicas: 1
-gateway:
-  enabled: true
-read:
-  replicas: 0
-write:
-  replicas: 0
-backend:
-  replicas: 0
-monitoring:
-  lokiCanary:
-    enabled: false
-  selfMonitoring:
-    enabled: false
-    grafanaAgent:
-      installOperator: false
-test:
-  enabled: false
-```
-
-> **Fix applique** : Utiliser `single-binary-values.yaml` avec `gateway.enabled=true`. L'URL Loki correcte est `http://loki-gateway.monitoring.svc.cluster.local` (pas `http://loki.monitoring.svc.cluster.local:3100`).
-
-```bash
-helm install loki grafana/loki \
-  --namespace monitoring \
-  -f single-binary-values.yaml
-```
-
-## 7. Installation Promtail
-
-```bash
-helm install promtail grafana/promtail \
-  --namespace monitoring \
-  --set "config.clients[0].url=http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
-```
-
-## 8. Configuration du ConfigMap Loki datasource
-
-```bash
-kubectl apply -f monitoring/loki-datasource.yaml
-```
-
-> **Fix applique** : Le ConfigMap doit avoir le label `grafana_datasource: "1"` et `app.kubernetes.io/part-of: kube-prometheus-stack` pour etre auto-detecte par le sidecar Grafana.
-
-## 9. Deploiement des Helm charts
-
-```bash
-kubectl create namespace production
-
+# Deploiement applicatif
 helm install backend helm/backend --namespace production
-helm install frontend helm/frontend --namespace production
 ```
 
-Verifier le deploiement :
+## Regles de developpement
 
-```bash
-kubectl get pods -n production
-kubectl get svc -n production
-kubectl get ingress -n production
-```
+- Ne JAMAIS generer de sortie diagnostique definitive
+- Le moteur de regles a toujours la priorite sur l'IA
+- Toute sortie texte doit passer par le `SafetyValidationService`
+- Les red flags ne peuvent pas etre surcharges par l'IA
+- Les donnees de sante doivent etre chiffrees
+- Les tests doivent couvrir les scenarios de securite medicale
+- Utiliser `SimpleTestCase` quand pas de base de donnees requise
+- URLs Django avec `/` final (trailing slash)
 
-## 10. Application des apps ArgoCD
+## Conventions
 
-```bash
-kubectl apply -f helm/argocd/backend-app.yaml
-kubectl apply -f helm/argocd/frontend-app.yaml
-```
-
-Verifier la synchronisation :
-
-```bash
-kubectl get applications -n argocd
-```
-
-## Corrections et fix importants appliques
-
-| Probleme | Fix |
-|---|---|
-| Minikube OOM avec la stack complete | `--memory=10240` |
-| GitHub Actions runners = AMD64 | `platforms: linux/amd64` pour build/test/scan |
-| Images multi-arch pour GHCR | `platforms: linux/amd64,linux/arm64` + QEMU dans le job push |
-| Dockerfiles hardcodes ARM64 | Retrait de `--platform=linux/arm64`, plateforme geree par Buildx |
-| Alpine + QEMU = problemes | Images Debian slim (`node:22-slim`, `nginx:1.27`) au lieu d'Alpine pour le frontend |
-| `apt-get upgrade` dans les Dockerfiles | Mise a jour de libcrypto3, libssl3, libxml2 |
-| Django `TestCase` sans DB | Utiliser `SimpleTestCase` (pas de base de donnees configuree) |
-| `tsc` compile les fichiers test | Ajouter `exclude` dans `tsconfig.json` pour `*.test.tsx` |
-| Vitest pas Jest | `npm test` sans `--watchAll=false` (Vitest detecte le CI automatiquement) |
-| URL Loki incorrecte | `http://loki-gateway.monitoring.svc.cluster.local` (pas port 3100) |
-| SonarQube monitoringPasscode | Requis dans les secrets Vault |
-| SonarQube community edition | `community.enabled=true` si deploye en local |
-| Loki mode single-binary | Utiliser `single-binary-values.yaml` avec gateway |
-| ConfigMap Loki non detecte | Labels `grafana_datasource=1` + `app.kubernetes.io/part-of=kube-prometheus-stack` |
-| Django trailing slash | URLs avec `/` final (`api/hello/`, `health/`) |
-| Django CVE-2025-64459 | Mise a jour vers Django 5.1.14 |
+- Code en anglais, commentaires en anglais
+- Noms de variables et fonctions en snake_case (Python/Django)
+- Noms de tables en snake_case (PostgreSQL)
+- API RESTful avec codes HTTP standards
+- Validation des entrees avec DRF serializers
+- Gestion d'erreurs via DRF exception handling

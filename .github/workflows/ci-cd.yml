@@ -9,8 +9,7 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: ghcr.io
-  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/mon-projet-devops/frontend
-  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/mon-projet-devops/backend
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/autism-screening-platform/backend
 
 jobs:
   # ──────────────────────────────────────────────
@@ -29,7 +28,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ── Backend ──
       - name: Run Django tests
         uses: docker/build-push-action@v6
         with:
@@ -51,33 +49,6 @@ jobs:
           tags: ${{ env.BACKEND_IMAGE }}:test
           cache-from: type=gha,scope=backend
 
-      # ── Frontend ──
-      - name: Build frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: ${{ env.FRONTEND_IMAGE }}:test
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
-
-      - name: Run React tests
-        run: npm test
-        working-directory: frontend
-
   # ──────────────────────────────────────────────
   # Job 2 : SonarQube Quality Gate
   # ──────────────────────────────────────────────
@@ -97,9 +68,9 @@ jobs:
         with:
           args: >
             -Dsonar.organization=haykel
-            -Dsonar.projectKey=haykel_mon-projet-devops
-            -Dsonar.sources=.
-            -Dsonar.exclusions=**/*.test.ts,**/*.spec.ts
+            -Dsonar.projectKey=haykel_autism-screening-platform
+            -Dsonar.sources=backend
+            -Dsonar.exclusions=**/*test*.py,**/migrations/**
 
   # ──────────────────────────────────────────────
   # Job 3 : Security Scan
@@ -130,29 +101,10 @@ jobs:
           tags: ${{ env.BACKEND_IMAGE }}:scan
           cache-from: type=gha,scope=backend
 
-      - name: Build frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: ${{ env.FRONTEND_IMAGE }}:scan
-          cache-from: type=gha,scope=frontend
-
       - name: Trivy scan — backend
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.BACKEND_IMAGE }}:scan
-          format: table
-          exit-code: "1"
-          severity: CRITICAL
-          ignore-unfixed: true
-
-      - name: Trivy scan — frontend
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.FRONTEND_IMAGE }}:scan
           format: table
           exit-code: "1"
           severity: CRITICAL
@@ -199,15 +151,3 @@ jobs:
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
-
-      - name: Build & push frontend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.FRONTEND_IMAGE }}:latest
-            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend

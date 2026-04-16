@@ -1,286 +1,310 @@
-# mon-projet-devops
+# Autism Pre-Screening Platform
 
-Projet fullstack React + Django avec pipeline CI/CD, deploiement Kubernetes via Helm/ArgoCD, et monitoring complet (Prometheus, Grafana, Loki).
+Plateforme medicale de pre-depistage des Troubles du Spectre Autistique (TSA) chez l'enfant, avec une approche hybride combinant un moteur de regles cliniques, une couche d'interpretation IA, et des garde-fous de securite medicale.
 
-Optimise pour Apple Silicon M4 (ARM64).
+> **Ce systeme n'est PAS un outil de diagnostic.** Il fournit une estimation du risque, une detection de signaux d'alerte, et une recommandation de consultation professionnelle.
 
 ## Architecture
 
 ```
-                    ┌─────────────┐
-                    │  GitHub      │
-                    │  Actions     │
-                    └──────┬──────┘
-                           │
-              ┌────────────┼────────────┐
-              │            │            │
-         Build/Test    SonarQube    Trivy Scan
-              │            │            │
-              └────────────┼────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │    GHCR     │
-                    │  (images)   │
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │   ArgoCD    │
-                    └──────┬──────┘
-                           │
-              ┌────────────┼────────────┐
-              │                         │
-       ┌──────▼──────┐          ┌──────▼──────┐
-       │  Frontend    │          │  Backend     │
-       │  React/Nginx │          │  Django/DRF  │
-       │  :80         │          │  :8000       │
-       └─────────────┘          └─────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │  Monitoring  │
-                    │  Prometheus  │
-                    │  Grafana     │
-                    │  Loki        │
-                    └─────────────┘
+                         Intake
+                           |
+                    +------v------+
+                    |   Session   |
+                    |   (views)   |
+                    +------+------+
+                           |
+                    +------v------+
+                    | Questionnaire|
+                    |  (age-based |
+                    |   blocks)   |
+                    +------+------+
+                           |
+                    +------v------+
+                    |   Answers   |
+                    |   (views)   |
+                    +------+------+
+                           |
+              +------------+------------+
+              |                         |
+       +------v------+          +------v------+
+       | Rule Engine  |          |     AI      |
+       | (scoring,    |          | Summary     |
+       |  red flags,  |          | (Claude API)|
+       |  thresholds) |          |             |
+       +------+------+          +------+------+
+              |                         |
+              +------------+------------+
+                           |
+                    +------v------+
+                    |   Safety    |
+                    | Validation  |
+                    +------+------+
+                           |
+              +------------+------------+
+              |                         |
+       +------v------+          +------v------+
+       |   Result    |          |  Provider   |
+       |  Composer   |          |  Matcher    |
+       +-------------+          +-------------+
+```
+
+## Modele de decision hybride
+
+| Couche | Role | Priorite |
+|---|---|---|
+| Moteur de regles cliniques | Scoring, red flags, seuils, recommandation | **Primaire** |
+| Interpretation IA (Claude) | Resume narratif, explications, formulation | Support |
+| Garde-fous de securite | Validation du langage, blocage diagnostique | Obligatoire |
+
+### Niveaux de recommandation
+
+| Niveau | Condition |
+|---|---|
+| `monitor` | Score faible, pas de signaux critiques |
+| `pediatric_consultation` | Score >= seuil moyen (40%) |
+| `specialist_consultation` | Score >= seuil eleve (65%) |
+| `urgent_referral` | Regression langagiere ou sociale detectee |
+
+## Stack technique
+
+| Composant | Technologie |
+|---|---|
+| Backend | Django 5.1 + Django REST Framework |
+| Base de donnees | PostgreSQL 16 |
+| ORM | Django ORM |
+| IA | Claude API (Anthropic SDK) |
+| WSGI | Gunicorn |
+| Conteneurisation | Docker (multi-stage, multi-arch) |
+| Orchestration | Kubernetes (Minikube) |
+| CI/CD | GitHub Actions |
+| GitOps | ArgoCD |
+| Secrets | HashiCorp Vault |
+| Monitoring | Prometheus + Grafana + Loki |
+
+## Structure du projet
+
+```
+autism-screening-platform/
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── settings.py
+│   │   ├── urls.py
+│   │   ├── views.py               # health endpoint
+│   │   └── wsgi.py
+│   ├── screening/
+│   │   ├── models.py              # 8 models (Session, Question, Answer, etc.)
+│   │   ├── serializers.py         # DRF serializers
+│   │   ├── views.py               # API views
+│   │   ├── urls.py                # URL routing
+│   │   ├── admin.py               # Django admin config
+│   │   ├── tests.py               # Tests unitaires
+│   │   ├── services/
+│   │   │   ├── rule_engine.py     # Scoring, red flags, thresholds
+│   │   │   ├── ai_summary.py      # Claude API integration
+│   │   │   ├── safety_validation.py # Post-processing safety
+│   │   │   ├── provider_matcher.py  # Geolocation matching
+│   │   │   └── result_composer.py   # Orchestration
+│   │   └── management/
+│   │       └── commands/
+│   │           └── seed_questions.py # Seed data
+│   ├── Dockerfile
+│   ├── manage.py
+│   └── requirements.txt
+├── helm/
+│   ├── backend/
+│   └── argocd/
+├── infrastructure/
+│   └── postgresql/
+├── monitoring/
+│   └── loki-datasource.yaml
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml
+├── docker-compose.yml
+├── CLAUDE.md
+└── README.md
 ```
 
 ## Prerequis
 
-- macOS avec Apple Silicon (M1/M2/M3/M4)
+- Python 3.12+
+- PostgreSQL 16 (ou Docker)
+- macOS avec Apple Silicon (M1/M2/M3/M4) pour le deploiement K8s
 - Docker Desktop
-- Homebrew
-
-```bash
-brew install minikube kubectl helm vault trivy
-```
 
 ## Installation rapide
 
 ```bash
 # 1. Cloner le projet
-git clone https://github.com/haykel/mon-projet-devops.git
-cd mon-projet-devops
+git clone https://github.com/haykel/autism-screening-platform.git
+cd autism-screening-platform
 
-# 2. Lancer en local avec Docker Compose
+# 2. Installer les dependances
+cd backend
+pip install -r requirements.txt
+
+# 3. Appliquer les migrations
+python manage.py migrate
+
+# 4. Charger les donnees de seed
+python manage.py seed_questions
+
+# 5. Lancer le serveur
+python manage.py runserver
+# Backend : http://localhost:8000
+
+# Ou avec Docker Compose
 docker-compose up --build
-
-# Frontend : http://localhost:3000
-# Backend  : http://localhost:8000/api/hello/
-# Health   : http://localhost:8000/health/
+# Backend  : http://localhost:8000
+# Postgres : localhost:5432
 ```
 
-Pour le deploiement Kubernetes complet, voir [CLAUDE.md](CLAUDE.md).
+## Variables d'environnement
 
-## Stack technique
-
-| Composant | Technologie | Version |
+| Variable | Description | Defaut |
 |---|---|---|
-| Frontend | React + TypeScript + Vite | React 19, Vite 6 |
-| Backend | Django + Django REST Framework | Django 5.1.14, DRF 3.15 |
-| Serveur web | Nginx | 1.27 |
-| WSGI | Gunicorn | 23.0 |
-| Container | Docker (multi-stage, multi-arch) | - |
-| Orchestration | Kubernetes (Minikube) | 1.31 |
-| CI/CD | GitHub Actions | - |
-| GitOps | ArgoCD | - |
-| Registry | GitHub Container Registry (ghcr.io) | - |
-| Qualite | SonarCloud | - |
-| Securite | Trivy | - |
-| Secrets | HashiCorp Vault | - |
-| Monitoring | Prometheus + Grafana | kube-prometheus-stack |
-| Logs | Loki + Promtail | - |
+| `DJANGO_SECRET_KEY` | Cle secrete Django | `dev-secret-key-change-in-prod` |
+| `DJANGO_DEBUG` | Mode debug | `False` |
+| `DB_HOST` | Host PostgreSQL (vide = SQLite) | `` |
+| `DB_NAME` | Nom de la base | `autism_screening` |
+| `DB_USER` | Utilisateur PostgreSQL | `django` |
+| `DB_PASSWORD` | Mot de passe PostgreSQL | `django` |
+| `DB_PORT` | Port PostgreSQL | `5432` |
+| `ANTHROPIC_API_KEY` | Cle API Claude (optionnelle) | `` |
+| `PROVIDER_SEARCH_RADIUS_KM` | Rayon de recherche providers | `30` |
 
-## Structure du projet
+## API Endpoints
+
+### Session
 
 ```
-mon-projet-devops/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── settings.py          # Django config (DRF, no DB)
-│   │   ├── urls.py              # /api/hello/, /health/
-│   │   ├── views.py             # Endpoints DRF
-│   │   ├── tests.py             # SimpleTestCase
-│   │   └── wsgi.py
-│   ├── Dockerfile               # python:3.12-slim-bookworm, multi-stage (base/test/production)
-│   ├── manage.py
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx              # Hello World
-│   │   ├── App.test.tsx         # Test Vitest
-│   │   ├── main.tsx
-│   │   └── setupTests.ts
-│   ├── Dockerfile               # node:22-slim build + nginx:1.27 production
-│   ├── index.html
-│   ├── nginx.conf               # SPA + proxy /api/ -> backend
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── vite.config.ts
-├── helm/
-│   ├── backend/
-│   │   ├── Chart.yaml
-│   │   ├── values.yaml          # 2 replicas, healthcheck /health
-│   │   └── templates/
-│   │       ├── deployment.yaml
-│   │       ├── service.yaml
-│   │       └── ingress.yaml     # app.local/api
-│   ├── frontend/
-│   │   ├── Chart.yaml
-│   │   ├── values.yaml          # 2 replicas
-│   │   └── templates/
-│   │       ├── deployment.yaml
-│   │       ├── service.yaml
-│   │       └── ingress.yaml     # app.local/
-│   └── argocd/
-│       ├── backend-app.yaml     # Auto-sync, prune, selfHeal
-│       └── frontend-app.yaml
-├── monitoring/
-│   └── loki-datasource.yaml     # ConfigMap Grafana datasource
-├── .github/
-│   └── workflows/
-│       └── ci-cd.yml            # 4 jobs pipeline
-├── docker-compose.yml
-├── .gitignore
-├── CLAUDE.md                    # Instructions d'installation DevOps
-└── README.md
+POST   /api/sessions/                     Creer une session de depistage
+GET    /api/sessions/<uuid>/              Recuperer une session
 ```
 
-## Pipeline CI/CD
-
-Declenche sur push et pull request vers `main`.
+### Questionnaire
 
 ```
-push/PR -> main
-       |
-       v
-┌─────────────────┐
-│  Build & Test    │  Build images (amd64), tests Django + Vitest
-└───────┬─────────┘
-        |
-   ┌────┴────┐
-   v         v
-┌────────┐ ┌──────────┐
-│Sonar   │ │ Trivy    │  Qualite code + scan CVE critiques
-│Cloud   │ │ Security │
-└───┬────┘ └────┬─────┘
-    |           |
-    └─────┬─────┘
-          v
-   ┌─────────────┐
-   │ Push GHCR   │  Images multi-arch (amd64 + arm64)
-   └─────────────┘
+GET    /api/sessions/<uuid>/questions/    Questions adaptees a l'age de l'enfant
 ```
 
-### Images Docker
+### Reponses
 
 ```
-ghcr.io/haykel/mon-projet-devops/frontend:latest
-ghcr.io/haykel/mon-projet-devops/frontend:<sha>
-ghcr.io/haykel/mon-projet-devops/backend:latest
-ghcr.io/haykel/mon-projet-devops/backend:<sha>
+POST   /api/sessions/<uuid>/answers/      Soumettre les reponses
 ```
 
-### Secrets GitHub requis
+### Analyse
 
-| Secret | Description |
-|---|---|
-| `GITHUB_TOKEN` | Automatique, pour push GHCR |
-| `SONAR_TOKEN` | Token SonarCloud |
-| `SONAR_HOST_URL` | URL SonarCloud |
-
-## Monitoring
-
-### Acces
-
-| Service | Commande | URL |
-|---|---|---|
-| Grafana | `kubectl port-forward svc/kube-prometheus-stack-grafana -n monitoring 3001:80` | http://localhost:3001 |
-| Prometheus | `kubectl port-forward svc/kube-prometheus-stack-prometheus -n monitoring 9090:9090` | http://localhost:9090 |
-| ArgoCD | `kubectl port-forward svc/argocd-server -n argocd 8080:443` | https://localhost:8080 |
-
-### Datasources Grafana
-
-- **Prometheus** : auto-configure par kube-prometheus-stack
-- **Loki** : auto-configure via ConfigMap avec label `grafana_datasource=1`
-
-## Commandes utiles
-
-```bash
-# Docker Compose (dev local)
-docker-compose up --build          # Lancer le projet
-docker-compose down                # Arreter
-
-# Tests
-docker build --target test ./backend    # Tests Django dans le build
-cd frontend && npm test                 # Tests Vitest
-
-# Kubernetes
-kubectl get pods -n production          # Pods applicatifs
-kubectl get pods -n monitoring          # Pods monitoring
-kubectl get pods -n argocd              # Pods ArgoCD
-kubectl get ingress -n production       # Ingress rules
-
-# Helm
-helm install backend helm/backend -n production --create-namespace
-helm install frontend helm/frontend -n production
-helm upgrade backend helm/backend -n production
-helm list -n production
-
-# ArgoCD
-kubectl get applications -n argocd      # Etat des apps
-kubectl apply -f helm/argocd/           # Deployer les apps
-
-# Logs
-kubectl logs -l app=backend -n production
-kubectl logs -l app=frontend -n production
+```
+POST   /api/sessions/<uuid>/analyze/      Lancer l'analyse complete (3 couches)
+GET    /api/sessions/<uuid>/results/      Recuperer les resultats
 ```
 
-## Troubleshooting
+### Professionnels
 
-### Minikube OOM / pods en CrashLoopBackOff
-
-```bash
-minikube start --memory=10240
+```
+GET    /api/providers/nearby/?lat=X&lng=Y&radius=Z    Professionnels proches
 ```
 
-La stack complete (ArgoCD + Vault + Prometheus + Grafana + Loki) necessite au minimum 10 Go de RAM.
+### Health
 
-### Build Docker echoue sur GitHub Actions
+```
+GET    /health/                           Health check
+```
 
-Les runners GitHub sont AMD64. Les Dockerfiles ne doivent pas contenir `--platform=linux/arm64`. La plateforme est geree par `docker/build-push-action` avec le parametre `platforms`.
+### Exemple de flux complet
 
-### QEMU + Alpine = segfault
-
-Utiliser des images Debian slim (`node:22-slim`, `nginx:1.27`) au lieu d'Alpine pour les builds multi-arch avec QEMU.
-
-### Tests Django : ImproperlyConfigured DATABASES
-
-Utiliser `SimpleTestCase` au lieu de `TestCase` quand il n'y a pas de base de donnees configuree.
-
-### tsc compile les fichiers test
-
-Ajouter dans `tsconfig.json` :
+**1. Creation de session**
 
 ```json
-"exclude": ["src/**/*.test.tsx", "src/**/*.test.ts", "src/setupTests.ts"]
+POST /api/sessions/
+{
+  "parent_name": "Marie Dupont",
+  "child_first_name": "Lucas",
+  "child_age_months": 24,
+  "child_sex": "M",
+  "respondent_role": "mother",
+  "main_concerns": ["ne parle pas encore", "ne repond pas a son prenom"],
+  "address": "15 rue de la Paix",
+  "postal_code": "75002",
+  "city": "Paris",
+  "lat": 48.8698,
+  "lng": 2.3311
+}
 ```
 
-### Loki datasource non visible dans Grafana
+**2. Soumission des reponses**
 
-Verifier les labels du ConfigMap :
-
-```yaml
-labels:
-  grafana_datasource: "1"
-  app.kubernetes.io/part-of: kube-prometheus-stack
+```json
+POST /api/sessions/<uuid>/answers/
+{
+  "answers": [
+    { "question_id": 1, "selected_option_id": 4, "raw_value": "never" },
+    { "question_id": 2, "selected_option_id": 8, "raw_value": "never" }
+  ]
+}
 ```
 
-### URL Loki incorrecte
+**3. Resultat d'analyse**
 
-Avec le mode single-binary + gateway, l'URL est :
-
+```json
+GET /api/sessions/<uuid>/results/
+{
+  "global_score": 28.0,
+  "risk_level": "high",
+  "recommendation_level": "specialist_consultation",
+  "red_flags": ["no_response_to_name", "no_single_words_at_24_months"],
+  "domain_scores": {
+    "communication": { "score": 12.0, "max_score": 18.0, "percentage": 66.7 },
+    "social_interaction": { "score": 9.0, "max_score": 15.0, "percentage": 60.0 }
+  },
+  "ai_summary": "Les reponses indiquent des preoccupations notables...",
+  "explanation_json": {
+    "summary": "Ce depistage suggere un niveau de preoccupation eleve.",
+    "details": "Des indicateurs dans les domaines communication, social_interaction...",
+    "nextSteps": "Nous recommandons de consulter un specialiste...",
+    "disclaimer": "Ce resultat ne constitue pas un diagnostic..."
+  },
+  "nearby_providers": [
+    {
+      "name": "Dr. Sophie Martin",
+      "specialty": "Neuropediatre",
+      "address": "25 boulevard Haussmann, 75009 Paris",
+      "phone": "01 42 00 00 01",
+      "distance_km": 1.2
+    }
+  ]
+}
 ```
-http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push
+
+## Tests
+
+```bash
+# Tous les tests
+python manage.py test
+
+# Tests de l'app screening uniquement
+python manage.py test screening
+
+# Tests avec verbosity
+python manage.py test screening --verbosity=2
 ```
 
-Et non `http://loki:3100`.
+## Deploiement
+
+Pour le deploiement Kubernetes complet sur Minikube (Apple Silicon M4), voir [CLAUDE.md](CLAUDE.md).
+
+## Securite et conformite
+
+- Chiffrement des donnees au repos et en transit
+- Controle d'acces
+- Journalisation d'audit
+- Retention minimale des donnees
+- Conformite RGPD
+
+## Licence
+
+Projet prive - Usage medical reserve.
