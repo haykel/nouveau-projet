@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-db-init
+  namespace: production
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-db
+          image: postgres:16-alpine
+          env:
+            - name: PGHOST
+              value: postgresql.production.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-secret
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-secret
+                  key: POSTGRES_DB
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Création de l'utilisateur et de la base Keycloak..."
+              psql -v ON_ERROR_STOP=0 <<'SQL'
+              DO $$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'keycloak') THEN
+                  CREATE USER keycloak WITH PASSWORD 'Keycloak2026!';
+                END IF;
+              END
+              $$;
+
+              SELECT 'CREATE DATABASE keycloak_db OWNER keycloak'
+              WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'keycloak_db')\gexec
+
+              GRANT ALL PRIVILEGES ON DATABASE keycloak_db TO keycloak;
+              SQL
+              echo "Base keycloak_db prête."

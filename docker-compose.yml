@@ -1,0 +1,41 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    platform: linux/arm64
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_DEBUG=True
+      - KEYCLOAK_URL=http://host.docker.internal:8180
+      - KEYCLOAK_REALM=investissement
+      - KEYCLOAK_CLIENT_ID=backend
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY:-}
+      - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY:-}
+      - DB_NAME=investissement
+      - DB_USER=django
+      - DB_PASSWORD=Django2026!
+      - DB_HOST=host.docker.internal
+      - DB_PORT=5433
+      - REDIS_URL=redis://host.docker.internal:6379/0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./backend/staticfiles:/app/staticfiles
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_KEYCLOAK_URL=http://localhost:8180
+    platform: linux/arm64
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy

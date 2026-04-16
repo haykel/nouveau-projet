@@ -1,0 +1,13 @@
+command:
+  - start-dev
+extraEnv: |
+  - name: KC_DB
+    value: dev-file
+  - name: KC_HOSTNAME_STRICT
+    value: "false"
+  - name: KC_HTTP_ENABLED
+    value: "true"
+keycloak:
+  username: admin
+service:
+  type: ClusterIP
